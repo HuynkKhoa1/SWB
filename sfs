@@ -1,0 +1,639 @@
+local CONFIG = _G.CONFIG
+if not CONFIG or not CONFIG.ENABLED then
+    return
+end
+
+print('X')
+
+-- Services
+local HttpService = game:GetService('HttpService')
+local ReplicatedStorage = game:GetService('ReplicatedStorage')
+local Players = game:GetService('Players')
+local TeleportService = game:GetService('TeleportService')
+local LocalPlayer = Players.LocalPlayer
+
+local lastJoinRequest = 0
+
+-- PlaceIds
+local MENU_PLACE_ID = 14067600077
+local LOBBY_PLACE_ID = 18637069183
+local MATCH_PLACE_ID = 116052447681870
+
+-- ========== Soul War Logger Webhook System ==========
+local HttpService = game:GetService('HttpService')
+local ReplicatedStorage = game:GetService('ReplicatedStorage')
+local Players = game:GetService('Players')
+local LocalPlayer = Players.LocalPlayer
+
+-- constants
+local MATCH_PLACE_ID = 116052447681870
+
+local ToClients
+local InvRemote = ReplicatedStorage:WaitForChild('Remotes')
+    :FindFirstChild('GetReadableData')
+
+-- Check ping keyword
+local function isPingItem(item)
+    local pingCfg = CONFIG.PING or {}
+    if not pingCfg.ENABLED then
+        return false
+    end
+    local kwList = pingCfg.ITEMS or {}
+    local mode = (pingCfg.MATCH_MODE or 'contains'):lower()
+
+    local itemNorm = item:lower()
+    for _, kw in ipairs(kwList) do
+        local needle = kw:lower()
+        if needle ~= '' then
+            if mode == 'equals' then
+                if itemNorm == needle then
+                    return true
+                end
+            else -- contains
+                if itemNorm:find(needle, 1, true) then
+                    return true
+                end
+            end
+        end
+    end
+    return false
+end
+
+-- Dump inventory (filtered by keywords in CONFIG.PING.ITEMS)
+local function getInventoryMatches()
+    if not InvRemote then
+        return {}
+    end
+    local invData = {}
+    local success, s = pcall(function()
+        return InvRemote:InvokeServer()
+    end)
+    if not success or not s or not s.Inventory then
+        return {}
+    end
+
+    local keywords = CONFIG.PING and CONFIG.PING.ITEMS or {}
+    for i, v in pairs(s.Inventory) do
+        local value = type(v) == 'table' and 1 or v
+        local lowerName = i:lower()
+        for _, kw in ipairs(keywords) do
+            if kw ~= '' and lowerName:find(kw:lower(), 1, true) then
+                invData[i] = value
+            end
+        end
+    end
+    return invData
+end
+
+-- Send webhook
+local function sendItemWebhook(items)
+    if CONFIG.WEBHOOK_URL == '' then
+        return
+    end
+
+    local itemList = {}
+    local shouldPing = false
+
+    for item, count in pairs(items) do
+        local line = '[x' .. tostring(count) .. '] ' .. item
+        table.insert(itemList, line)
+        if not shouldPing and isPingItem(item) then
+            shouldPing = true
+        end
+    end
+
+    -- Inventory logging nếu bật
+    local invSection = ''
+    if CONFIG.LOG_INV then
+        local invMatches = getInventoryMatches()
+        if next(invMatches) then
+            local invLines = {}
+            for name, count in pairs(invMatches) do
+                table.insert(invLines, name .. ' : x' .. tostring(count))
+            end
+            invSection = '\n\n**Inv:**\n' .. table.concat(invLines, '\n')
+        end
+    end
+
+    local embed = {
+        title = 'Soul War Drop',
+        description = '**Username:** ||'
+            .. (LocalPlayer and LocalPlayer.Name or 'Unknown')
+            .. '||\n\n**Drop:**\n'
+            .. table.concat(itemList, '\n')
+            .. invSection
+            .. '\n\n**Time:** '
+            .. os.date('%H:%M:%S - %d/%m/%Y'),
+        color = 0xFFFFFF,
+        timestamp = os.date('!%Y-%m-%dT%H:%M:%SZ'),
+    }
+
+    local payload = { embeds = { embed } }
+
+    if
+        shouldPing
+        and CONFIG.PING
+        and CONFIG.PING.MENTION
+        and CONFIG.PING.MENTION ~= ''
+    then
+        payload.content = CONFIG.PING.MENTION
+    end
+
+    local body = HttpService:JSONEncode(payload)
+    local req = syn and syn.request or http_request or request
+    if req then
+        pcall(function()
+            req({
+                Url = CONFIG.WEBHOOK_URL,
+                Method = 'POST',
+                Headers = { ['Content-Type'] = 'application/json' },
+                Body = body,
+            })
+        end)
+    end
+end
+
+-- Parse text from ToClients
+local function handleDropText(text)
+    if not text:lower():find('you have received,') then
+        return
+    end
+
+    local itemsSection =
+        text:match('You have received,(.+)%. Next time you hop')
+    if not itemsSection then
+        return
+    end
+
+    local counts = {}
+    for item in itemsSection:gmatch('[^,]+') do
+        local cleanItem = item:match('^%s*(.-)%s*$')
+        if cleanItem and #cleanItem > 0 then
+            counts[cleanItem] = (counts[cleanItem] or 0) + 1
+        end
+    end
+
+    if next(counts) then
+        sendItemWebhook(counts)
+    end
+end
+
+-- Only attach listener if in MATCH place
+if game.PlaceId == MATCH_PLACE_ID then
+    ToClients = ReplicatedStorage:WaitForChild('MMRemotes')
+        :WaitForChild('ToClients')
+    ToClients.OnClientEvent:Connect(function(data)
+        if
+            type(data) == 'table'
+            and data.Type == 'TypewriteUI'
+            and data.text
+        then
+            handleDropText(data.text)
+        end
+    end)
+end
+
+-- ========== Party UI Utils ==========
+local function getPartyMembersFolder()
+    local ok, result = pcall(function()
+        return LocalPlayer.PlayerGui
+            :WaitForChild('Menu')
+            :WaitForChild('Main')
+            :WaitForChild('Sidebar')
+            :WaitForChild('Party')
+            :WaitForChild('Members')
+    end)
+    return ok and result or nil
+end
+
+local function getPartyMemberCount()
+    local folder = getPartyMembersFolder()
+    if not folder then
+        return 0
+    end
+    local count = 0
+    for _, child in ipairs(folder:GetChildren()) do
+        if not child:IsA('UIListLayout') then
+            count += 1
+        end
+    end
+    return count
+end
+
+-- ========== Step 1 ==========
+local function step1()
+    local remotes = ReplicatedStorage:WaitForChild('Remotes')
+    pcall(function()
+        remotes
+            :WaitForChild('ChooseSlot')
+            :InvokeServer(CONFIG.SLOT_NAME, CONFIG.DESTINATION)
+    end)
+    pcall(function()
+        remotes
+            :WaitForChild('Teleport')
+            :InvokeServer({ teleportTo = CONFIG.DESTINATION })
+    end)
+
+    if CONFIG.JOB_ID ~= '' then
+        pcall(function()
+            TeleportService:TeleportToPlaceInstance(
+                LOBBY_PLACE_ID,
+                CONFIG.JOB_ID,
+                LocalPlayer
+            )
+        end)
+    else
+        local holdUser = Players:FindFirstChild(CONFIG.SERVER_HOLD_USER)
+        if holdUser and holdUser.UserId then
+            pcall(function()
+                TeleportService:TeleportToPlayer(
+                    LOBBY_PLACE_ID,
+                    holdUser,
+                    LocalPlayer
+                )
+            end)
+        end
+    end
+end
+
+local function step2()
+    local remotes = ReplicatedStorage:WaitForChild('Remotes')
+    local teamRemote = remotes:WaitForChild('Team')
+
+    -- biến lưu lần gửi !joinserver gần nhất
+    local lastJoinRequestTime = 0
+
+    if CONFIG.SERVER_HOLD_USER and CONFIG.SERVER_HOLD_USER ~= '' then
+        task.spawn(function()
+            while true do
+                local holdPlayer = Players:FindFirstChild(CONFIG.SERVER_HOLD_USER)
+
+                -- nếu chưa thấy hold user trong server thì spam !joinserver
+                if not holdPlayer then
+                    local now = tick()
+                    -- chỉ gửi lại sau 5s nếu chưa TP
+                    if now - lastJoinRequestTime >= 20 then
+                        lastJoinRequestTime = now
+                        pcall(function()
+                            local TextChatService = game:GetService('TextChatService')
+                            if TextChatService.ChatVersion == Enum.ChatVersion.TextChatService then
+                                TextChatService.TextChannels.RBXGeneral:SendAsync(
+                                    '!joinserver ' .. CONFIG.SERVER_HOLD_USER
+                                )
+                            else
+                                game.ReplicatedStorage.DefaultChatSystemChatEvents.SayMessageRequest:FireServer(
+                                    '!joinserver ' .. CONFIG.SERVER_HOLD_USER,
+                                    'All'
+                                )
+                            end
+                        end)
+                    end
+                end
+
+                task.wait(1)
+            end
+        end)
+    end
+
+    local function allWhitelistPresent()
+        for _, name in ipairs(CONFIG.WHITELIST_USERS) do
+            if not Players:FindFirstChild(name) then
+                return false
+            end
+        end
+        return true
+    end
+
+    local function doInvites()
+        if CONFIG.TEAM_CONFIG.MODE == 'ACP' then
+            local target = Players:FindFirstChild(CONFIG.TEAM_CONFIG.ACP_TARGET)
+            if target then
+                pcall(function()
+                    teamRemote:FireServer('AcceptInvite', target)
+                end)
+            end
+        else
+            for _, name in ipairs(CONFIG.TEAM_CONFIG.INV_TARGETS) do
+                local target = Players:FindFirstChild(name)
+                if target then
+                    pcall(function()
+                        teamRemote:FireServer('Invite', target)
+                    end)
+                end
+                task.wait(0.2)
+            end
+        end
+    end
+
+    -- biến lưu cooldown join
+    local lastWhitelistReady = 0
+
+    task.spawn(function()
+        while true do
+            local partySize = getPartyMemberCount()
+            local targetSize = CONFIG.TEAM_CONFIG.MODE == 'ACP' and 2
+                or (#CONFIG.TEAM_CONFIG.INV_TARGETS + 1)
+
+            if partySize >= targetSize and allWhitelistPresent() then
+                local now = tick()
+                if now - lastWhitelistReady >= 40 then
+                    lastWhitelistReady = now
+                    pcall(function()
+                        teamRemote:FireServer('JoinQueue', 'SOUL WARS')
+                    end)
+                end
+                task.wait(1)
+            else
+                doInvites()
+                task.wait(2)
+            end
+        end
+    end)
+
+    -- ================== THÊM YÊU CẦU CỦA BẠN ==================
+    task.spawn(function()
+        local teleportStarted = false
+        local startTime = tick()
+
+        while true do
+            -- nếu 5 phút trôi qua mà chưa teleport
+            if not teleportStarted and tick() - startTime >= 300 then
+                local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+                char:WaitForChild('CharacterHandler')
+                    :WaitForChild('Remotes')
+                    :WaitForChild('MainMenu')
+                    :FireServer()
+                break
+            end
+
+            task.wait(1)
+        end
+    end)
+end
+
+
+-- ========== Step 3 ==========
+local function step3()
+    local playerGui = Players.LocalPlayer:WaitForChild('PlayerGui')
+    local intermissionGui = playerGui:FindFirstChild('Intermission')
+
+    local characterMap = {
+        [1] = 'Jay',
+        [2] = 'Sunny',
+        [3] = 'Jal',
+        [4] = 'Kalin',
+    }
+
+    local function sendCharacterSelect(num)
+        local name = characterMap[num] or 'Jay'
+        local args = { 'SelectCharacter', name }
+        for i = 1, 3 do
+            pcall(function()
+                ReplicatedStorage:WaitForChild('Remotes')
+                    :WaitForChild('Matchmaking')
+                    :WaitForChild('ServerAction')
+                    :FireServer(unpack(args))
+            end)
+            task.wait(0.2)
+        end
+    end
+
+    if intermissionGui then
+        sendCharacterSelect(CONFIG.CHARACTER)
+        intermissionGui.AncestryChanged:Wait()
+    end
+
+    -- 🆕 CHECK USER LOGIC -------------------------
+    local function getAllRequiredUsers()
+        local list = {}
+        -- whitelist
+        for _, name in ipairs(CONFIG.WHITELIST_USERS) do
+            table.insert(list, name)
+        end
+        -- team invite targets
+        if CONFIG.TEAM_CONFIG and CONFIG.TEAM_CONFIG.INV_TARGETS then
+            for _, name in ipairs(CONFIG.TEAM_CONFIG.INV_TARGETS) do
+                table.insert(list, name)
+            end
+        end
+        -- add self
+        if LocalPlayer and LocalPlayer.Name then
+            table.insert(list, LocalPlayer.Name)
+        end
+        return list
+    end
+
+    local function allUsersPresent()
+        local required = getAllRequiredUsers()
+        for _, name in ipairs(required) do
+            if not Players:FindFirstChild(name) then
+                return false
+            end
+        end
+        return true
+    end
+
+    -- kiểm tra sau 10s
+    task.delay(10, function()
+        if not allUsersPresent() then
+            -- chờ thêm 5s nữa (tổng 15s)
+            task.wait(5)
+            if not allUsersPresent() then
+                -- return menu
+                pcall(function()
+                    local char = LocalPlayer.Character
+                        or LocalPlayer.CharacterAdded:Wait()
+                    char:WaitForChild('CharacterHandler')
+                        :WaitForChild('Remotes')
+                        :WaitForChild('MainMenu')
+                        :FireServer()
+                end)
+                return
+            end
+        end
+    end) -- 🔥 cái end này bạn bị thiếu
+
+    -- nếu đủ thì track liên tục
+    task.spawn(function()
+        local tracking = true
+        local matchGui = playerGui
+            :WaitForChild('Match')
+            :WaitForChild('Main')
+            :WaitForChild('Container')
+        local score1 = matchGui.Team1.Score
+        local score2 = matchGui.Team2.Score
+
+        while tracking do
+            task.wait(2)
+
+            -- nếu có team nào đạt 5 điểm thì dừng track (game end)
+            if score1.Text == '5' or score2.Text == '5' then
+                tracking = false
+                break
+            end
+
+            -- nếu mất người thì return menu
+            if not allUsersPresent() then
+                pcall(function()
+                    local char = LocalPlayer.Character
+                        or LocalPlayer.CharacterAdded:Wait()
+                    char:WaitForChild('CharacterHandler')
+                        :WaitForChild('Remotes')
+                        :WaitForChild('MainMenu')
+                        :FireServer()
+                end)
+                break
+            end
+        end
+    end)
+
+    -- ========== FARM ==========
+    if CONFIG.GROUP == 'FARM' then
+        task.spawn(function()
+            -- Monitor text for item drops
+            local function monitorTextChanges()
+                local lastText = ''
+                while true do
+                    local success, txtLabel = pcall(function()
+                        return LocalPlayer.PlayerGui
+                            :WaitForChild('TypewriteTip', 5)
+                            :WaitForChild('Holder', 5)
+                            :FindFirstChild('txt')
+                    end)
+
+                    if success and txtLabel then
+                        local currentText = txtLabel.Text or ''
+                        if
+                            currentText ~= lastText
+                            and not isProcessing
+                            and #currentText > 0
+                        then
+                            lastText = currentText
+                            task.spawn(function()
+                                task.wait(0.5)
+                                if
+                                    txtLabel.Text == currentText
+                                    and not isProcessing
+                                then
+                                    processItemText(currentText)
+                                end
+                            end)
+                        end
+                    end
+                    task.wait(0.1)
+                end
+            end
+
+            -- Reset processedTexts mỗi 5 phút
+            task.spawn(function()
+                while true do
+                    task.wait(300)
+                    processedTexts = {}
+                end
+            end)
+
+            monitorTextChanges()
+        end)
+
+        -- Auto Return on Score (FARM, cd 5s)
+        task.spawn(function()
+            local farming = true
+            local matchGui = playerGui
+                :WaitForChild('Match')
+                :WaitForChild('Main')
+                :WaitForChild('Container')
+            local score1 = matchGui.Team1.Score
+            local score2 = matchGui.Team2.Score
+            while farming do
+                if score1.Text == '5' or score2.Text == '5' then
+                    farming = false
+                    task.wait(20) -- cd 5 giây cho FARM
+                    pcall(function()
+                        local char = LocalPlayer.Character
+                            or LocalPlayer.CharacterAdded:Wait()
+                        char:WaitForChild('CharacterHandler')
+                            :WaitForChild('Remotes')
+                            :WaitForChild('MainMenu')
+                            :FireServer()
+                    end)
+                    break
+                end
+                task.wait(1)
+            end
+        end)
+    end
+
+    -- ========== BOOST ==========
+    if CONFIG.GROUP == 'BOOST' then
+        local boosting = true
+        local spectatePoint = nil
+        pcall(function()
+            spectatePoint = workspace
+                :WaitForChild('SpectateRoom').Room.Model
+                :GetChildren()[25]
+        end)
+
+        -- Kill nếu quá xa spectatePoint
+        task.spawn(function()
+            while boosting do
+                local entity = workspace
+                    :WaitForChild('Entities')
+                    :FindFirstChild(LocalPlayer.Name)
+                if entity then
+                    local humanoid = entity:FindFirstChild('Humanoid')
+                    local hrp = entity:FindFirstChild('HumanoidRootPart')
+                    if humanoid and hrp then
+                        local canReset = true
+                        if spectatePoint and spectatePoint:IsA('BasePart') then
+                            local dist = (hrp.Position - spectatePoint.Position).Magnitude
+                            if dist <= 30 then
+                                canReset = false
+                            end
+                        end
+                        if canReset then
+                            humanoid.Health = 0
+                        end
+                    end
+                end
+                task.wait(1)
+            end
+        end)
+
+        -- Auto Return on Score (BOOST, cd 3s)
+        task.spawn(function()
+            local matchGui = playerGui
+                :WaitForChild('Match')
+                :WaitForChild('Main')
+                :WaitForChild('Container')
+            local score1 = matchGui.Team1.Score
+            local score2 = matchGui.Team2.Score
+            while boosting do
+                if score1.Text == '5' or score2.Text == '5' then
+                    boosting = false
+                    task.wait(3) -- cd 3 giây cho BOOST
+                    pcall(function()
+                        local char = LocalPlayer.Character
+                            or LocalPlayer.CharacterAdded:Wait()
+                        char:WaitForChild('CharacterHandler')
+                            :WaitForChild('Remotes')
+                            :WaitForChild('MainMenu')
+                            :FireServer()
+                    end)
+                    break
+                end
+                task.wait(1)
+            end
+        end)
+    end
+end
+
+-- ========== AUTO ==========
+task.delay(CONFIG.DELAY, function()
+    if game.PlaceId == MENU_PLACE_ID then
+        step1()
+    elseif game.PlaceId == LOBBY_PLACE_ID then
+        step2()
+    elseif game.PlaceId == MATCH_PLACE_ID then
+        step3()
+    end
+end)
