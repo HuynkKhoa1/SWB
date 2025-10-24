@@ -46,8 +46,9 @@ local placeId = game.PlaceId
 if placeId == 14067600077 then
     goToMatchmaking()
 elseif placeId == 132879607635324 then
+    local localPlayer = Players.LocalPlayer
     for _, plr in ipairs(Players:GetPlayers()) do
-        if isBlacklisted(string.lower(plr.Name)) then
+        if plr ~= localPlayer and isBlacklisted(string.lower(plr.Name)) then
             hopServer()
             break
         end
