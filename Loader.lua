@@ -1,3 +1,6 @@
+if getgenv()._hop_checked then return end
+getgenv()._hop_checked = true
+
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TeleportService = game:GetService("TeleportService")
@@ -18,14 +21,9 @@ local function goToMatchmaking()
     local ChooseSlot = Remotes:WaitForChild("ChooseSlot")
     local Teleport = Remotes:WaitForChild("Teleport")
     pcall(function()
-        ChooseSlot:InvokeServer(unpack({
-            [1] = "A",
-            [2] = "Matchmaking"
-        }))
+        ChooseSlot:InvokeServer("A", "Matchmaking")
         task.wait(0.5)
-        Teleport:InvokeServer(unpack({
-            [1] = { teleportTo = "Matchmaking (EU)" }
-        }))
+        Teleport:InvokeServer({ teleportTo = "Matchmaking (EU)" })
     end)
 end
 
@@ -50,7 +48,7 @@ elseif placeId == 132879607635324 then
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= localPlayer and isBlacklisted(string.lower(plr.Name)) then
             hopServer()
-            break
+            return
         end
     end
 end
