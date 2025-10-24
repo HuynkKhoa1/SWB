@@ -3,7 +3,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TeleportService = game:GetService("TeleportService")
 
 local blacklist = {
-    "baoloflotahoa2",
+    "lagialaolr58",
     "toanlamhailua23",
     "ungthucu124",
     "ungthuvu334",
