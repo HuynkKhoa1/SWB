@@ -2,7 +2,16 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TeleportService = game:GetService("TeleportService")
 
-local block_user = "ExampleNameHere"
+local blacklist = {
+    "baoloflotahoa2",
+    "toanlamhailua23",
+    "ungthucu124",
+    "ungthuvu334",
+    "ungthudai331",
+    "thaophupro331",
+    "quechantungcuoc07",
+    "leesinqechan24"
+}
 
 local function goToMatchmaking()
     local Remotes = ReplicatedStorage:WaitForChild("Remotes")
@@ -24,12 +33,21 @@ local function hopServer()
     TeleportService:Teleport(132879607635324)
 end
 
+local function isBlacklisted(name)
+    for _, bad in ipairs(blacklist) do
+        if string.lower(name) == bad then
+            return true
+        end
+    end
+    return false
+end
+
 local placeId = game.PlaceId
 if placeId == 14067600077 then
     goToMatchmaking()
 elseif placeId == 132879607635324 then
     for _, plr in ipairs(Players:GetPlayers()) do
-        if string.lower(plr.Name) == string.lower(block_user) then
+        if isBlacklisted(string.lower(plr.Name)) then
             hopServer()
             break
         end
