@@ -10,7 +10,9 @@ local blacklist = {
     "ungthudai331",
     "thaophupro331",
     "quechantungcuoc07",
-    "leesinqechan24"
+    "leesinqechan24",
+    "yamate0504",
+    "yumycutequa"
 }
 
 local function goToMatchmaking()
