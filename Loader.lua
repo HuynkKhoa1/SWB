@@ -3,16 +3,12 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TeleportService = game:GetService("TeleportService")
 
 local blacklist = {
-    "lagialaolr58",
-    "toanlamhailua23",
-    "ungthucu124",
-    "ungthuvu334",
-    "ungthudai331",
-    "thaophupro331",
-    "quechantungcuoc07",
-    "leesinqechan24",
+    "KoaRF37",
     "yamate0504",
-    "yumycutequa"
+    "Sasasusine",
+    "theanh21127",
+    "huuduyentaialm34",
+    "toanlamhailua23",
 }
 
 local function goToMatchmaking()
