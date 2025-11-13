@@ -7,7 +7,7 @@ local blacklist = {
     "yamate0504",
     "Sasasusine",
     "tranvanhao127",
-    "huuduyentaialm34",
+    "lagialaolr58",
     "toanlamhailua23",
 }
 
